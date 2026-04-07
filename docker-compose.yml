@@ -1,0 +1,57 @@
+# docker-compose.yml
+# Rebobina.ai — Infraestrutura local
+# Comando: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # PostgreSQL 16 com extensão pgvector
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: rebobina_postgres
+    environment:
+      POSTGRES_USER: rebobina
+      POSTGRES_PASSWORD: senha123
+      POSTGRES_DB: rebobina_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U rebobina -d rebobina_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis para BullMQ e cache
+  redis:
+    image: redis:7-alpine
+    container_name: rebobina_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Redis Commander (UI para Redis — opcional)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: rebobina_redis_ui
+    environment:
+      REDIS_HOSTS: local:redis:6379
+    ports:
+      - "8081:8081"
+    depends_on:
+      - redis
+    profiles:
+      - tools  # só sobe com: docker-compose --profile tools up
+
+volumes:
+  postgres_data:
+  redis_data:
