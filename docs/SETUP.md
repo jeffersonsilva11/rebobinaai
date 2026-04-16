@@ -108,13 +108,16 @@ npx prisma studio
 npx tsx scripts/test-pipeline.ts
 
 # Popula com top 50 títulos populares (~15 min)
-npx tsx scripts/seed-top-titles.ts --limit 50
+npm run seed:titles -- --limit 50
 
 # Popula o catálogo completo em background (~2h)
-npx tsx scripts/seed-top-titles.ts --limit 500 &
+npm run seed:titles -- --limit 500 &
 
 # Acompanhe o progresso
-npx tsx scripts/seed-top-titles.ts --status
+npm run seed:titles -- --status
+
+# Popula trending semanal (TMDB)
+npm run seed:trending
 ```
 
 ---
@@ -167,9 +170,16 @@ rebobina/
 │
 ├── scripts/
 │   ├── seed-platforms.ts         ← popula plataformas
-│   ├── seed-top-titles.ts        ← popula títulos iniciais
 │   ├── test-pipeline.ts          ← testa com 5 títulos
+│   ├── setup-local.sh            ← setup completo local
 │   └── init-db.sql               ← extensões PostgreSQL
+│
+├── docs/
+│   ├── ARCHITECTURE.md           ← visão geral
+│   ├── DATABASE.md               ← schema e modelos
+│   ├── PIPELINE.md               ← pipeline de ingestão
+│   ├── API.md                    ← rotas públicas
+│   └── SETUP.md                  ← este arquivo
 │
 └── src/
     ├── app/
@@ -250,5 +260,5 @@ ls -la | grep env
 **Banco vazio após seed**
 ```bash
 # Veja os logs do pipeline
-npx tsx scripts/seed-top-titles.ts --verbose
+npm run seed:titles -- --verbose
 ```

@@ -1,9 +1,9 @@
-// scripts/seed-top-titles.ts
+// src/pipeline/scripts/seed-top-titles.ts
 // Popula banco com títulos populares do TMDB
 
-import { prisma } from '../src/lib/db'
-import { tmdb } from '../src/lib/apis/tmdb'
-import { ingestTitle } from '../src/pipeline/jobs/ingest-title'
+import { prisma } from '../../lib/db'
+import { tmdb } from '../../lib/apis/tmdb'
+import { ingestTitle } from '../jobs/ingest-title'
 
 const args = process.argv.slice(2)
 const limit = parseInt(args[args.indexOf('--limit') + 1] ?? '50')

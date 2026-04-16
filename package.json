@@ -12,7 +12,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
     "seed:platforms": "tsx scripts/seed-platforms.ts",
-    "seed:titles": "tsx scripts/seed-top-titles.ts",
+    "seed:titles": "tsx src/pipeline/scripts/seed-top-titles.ts",
+    "seed:trending": "tsx src/pipeline/scripts/seed-trending.ts",
     "test:pipeline": "tsx scripts/test-pipeline.ts",
     "test:search": "tsx scripts/test-search.ts"
   },

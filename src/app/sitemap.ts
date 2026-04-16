@@ -15,12 +15,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   if (!process.env.DATABASE_URL) return staticRoutes
 
   try {
-    const titles = await prisma.title.findMany({
-      where: { status: 'PUBLISHED' },
-      select: { slug: true, type: true, updatedAt: true },
-      orderBy: { updatedAt: 'desc' },
-      take: 5000,
-    })
+    const [titles, people] = await Promise.all([
+      prisma.title.findMany({
+        where: { status: 'PUBLISHED' },
+        select: { slug: true, type: true, updatedAt: true },
+        orderBy: { updatedAt: 'desc' },
+        take: 5000,
+      }),
+      prisma.person.findMany({
+        where: { titleRoles: { some: { title: { status: 'PUBLISHED' } } } },
+        select: { slug: true },
+        take: 2000,
+      }),
+    ])
 
     const titleRoutes: MetadataRoute.Sitemap = titles.map((t) => ({
       url: `${BASE_URL}/${t.type === 'SERIES' ? 'serie' : 'filme'}/${t.slug}`,
@@ -29,7 +36,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.7,
     }))
 
-    return [...staticRoutes, ...titleRoutes]
+    const personRoutes: MetadataRoute.Sitemap = people.map((p) => ({
+      url: `${BASE_URL}/ator/${p.slug}`,
+      changeFrequency: 'monthly',
+      priority: 0.5,
+    }))
+
+    return [...staticRoutes, ...titleRoutes, ...personRoutes]
   } catch {
     return staticRoutes
   }
