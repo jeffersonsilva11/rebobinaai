@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   },
   description:
     'Descubra filmes e séries por linguagem natural. IA que entende seu humor e mostra onde assistir no Brasil.',
-  metadataBase: new URL(process.env.NEXTAUTH_URL ?? 'http://localhost:3000'),
+  metadataBase: new URL(process.env.NEXTAUTH_URL ?? 'http://localhost:3002'),
   openGraph: {
     locale: 'pt_BR',
     type: 'website',

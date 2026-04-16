@@ -25,7 +25,7 @@
 3. Vá em APIs & Services → OAuth consent screen → External
 4. Vá em Credentials → Create → OAuth 2.0 Client ID
 5. Application type: **Web application**
-6. Authorized redirect URIs: `http://localhost:3000/api/auth/callback/google`
+6. Authorized redirect URIs: `http://localhost:3002/api/auth/callback/google`
 7. Copie **Client ID** e **Client Secret**
 
 ### OMDb (opcional — notas adicionais)
@@ -80,6 +80,15 @@ docker-compose ps
 # Deve mostrar: rebobina_postgres (healthy) e rebobina_redis (healthy)
 ```
 
+**Portas expostas no host** (escolhidas para não conflitar com outros projetos):
+
+| Serviço         | Porta host |
+|-----------------|------------|
+| Postgres        | **5433**   |
+| Redis           | **6380**   |
+| Redis Commander | **8082** (opcional: `docker-compose --profile tools up -d`) |
+| App Next.js     | **3002**   |
+
 ---
 
 ## 4. Configure o banco de dados
@@ -129,9 +138,9 @@ npm run seed:trending
 npm run dev
 
 # Acesse:
-# http://localhost:3000          — Home
-# http://localhost:3000/busca    — Busca com IA
-# http://localhost:3000/filme/[slug] — Página do filme
+# http://localhost:3002          — Home
+# http://localhost:3002/busca    — Busca com IA
+# http://localhost:3002/filme/[slug] — Página do filme
 ```
 
 ---
@@ -141,11 +150,11 @@ npm run dev
 ```bash
 # Simula o cron de disponibilidade
 curl -H "Authorization: Bearer seu-cron-secret" \
-  "http://localhost:3000/api/webhooks/cron?job=availability"
+  "http://localhost:3002/api/webhooks/cron?job=availability"
 
 # Simula busca de novos títulos
 curl -H "Authorization: Bearer seu-cron-secret" \
-  "http://localhost:3000/api/webhooks/cron?job=new-titles"
+  "http://localhost:3002/api/webhooks/cron?job=new-titles"
 ```
 
 ---

@@ -4,7 +4,7 @@
 import { Queue } from 'bullmq'
 import IORedis from 'ioredis'
 
-const connection = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
+const connection = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6380', {
   maxRetriesPerRequest: null,
 })
 

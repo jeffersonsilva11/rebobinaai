@@ -11,7 +11,7 @@ class RedisClient {
   private baseUrl: string
 
   constructor() {
-    this.baseUrl = process.env.REDIS_URL ?? 'redis://localhost:6379'
+    this.baseUrl = process.env.REDIS_URL ?? 'redis://localhost:6380'
   }
 
   // In-memory fallback para quando Redis não está disponível

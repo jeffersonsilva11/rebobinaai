@@ -6,7 +6,8 @@ const query = process.argv.slice(2).join(' ') || 'série curta sem ansiedade'
 async function main() {
   console.log(`→ Testando busca: "${query}"\n`)
 
-  const res = await fetch('http://localhost:3000/api/search', {
+  const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3002'
+  const res = await fetch(`${baseUrl}/api/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ query }),
