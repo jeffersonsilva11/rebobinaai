@@ -23,7 +23,7 @@ model User {
   name          String?
   image         String?
   plan          Plan      @default(FREE)
-  stateBr       String?   @db.Char(2)    // SP, RJ, etc.
+  stateBr       String?   @db.Char(2)
   birthYear     Int?
   onboardingDone Boolean  @default(false)
   lgpdConsentAt DateTime?
@@ -86,12 +86,12 @@ model VerificationToken {
 model UserPreference {
   id             String   @id @default(cuid())
   userId         String   @unique
-  favGenres      Int[]    // IDs de genres
+  favGenres      Int[]
   dislikedGenres Int[]
-  favPlatforms   Int[]    // IDs de platforms
-  favLanguages   String[] // pt, en, es, fr
-  maxRuntime     Int?     // minutos
-  moodProfile    Json?    // vetor de humor derivado
+  favPlatforms   Int[]
+  favLanguages   String[]
+  maxRuntime     Int?
+  moodProfile    Json?
   updatedAt      DateTime @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -107,63 +107,54 @@ model Title {
   id              String      @id @default(cuid())
   tmdbId          Int         @unique
   imdbId          String?
-  type            TitleType   // MOVIE | SERIES | DOCUMENTARY | MINISERIES
+  type            TitleType
   slug            String      @unique
 
-  // Título
-  titlePt         String      // Título em PT-BR
-  titleOriginal   String      // Título original
+  titlePt         String
+  titleOriginal   String
   year            Int
-  endYear         Int?        // Para séries (null = em andamento)
-  runtimeMin      Int?        // Duração em minutos (ep para séries)
+  endYear         Int?
+  runtimeMin      Int?
   totalEpisodes   Int?
   totalSeasons    Int?
 
-  // Conteúdo
-  synopsisPt      String?     @db.Text  // Gerada por IA em PT
-  synopsisAiQuote String?     @db.Text  // Frase editorial IA
-  aiTrivia        Json?       // Array de curiosidades geradas por IA
-  aiOpinionSummary String?    @db.Text  // Resumo de opinião público
+  synopsisPt      String?     @db.Text
+  synopsisAiQuote String?     @db.Text
+  aiTrivia        Json?
+  aiOpinionSummary String?    @db.Text
 
-  // Mídia
-  posterUrl       String?     // TMDB CDN
+  posterUrl       String?
   backdropUrl     String?
   trailerYoutubeId String?
 
-  // Classificação
-  ratingAge       String?     // L, 10, 12, 14, 16, 18
+  ratingAge       String?
   countries       String[]
   languages       String[]
   spokenLanguages String[]
 
-  // Redes sociais (do filme/série)
   instagramId     String?
   twitterId       String?
   facebookId      String?
 
-  // IA — Tags e categorização (CORE do diferencial)
-  embedding       Unsupported("vector(1536)")?  // pgvector
-  aiTags          String[]    // tags semânticas livres
-  aiMoodTags      String[]    // feel-good, tense, dark, uplifting...
-  aiComplexity    String?     // low | medium | high
-  aiPace          String?     // slow | medium | fast
-  aiAnxietyLevel  Int?        // 1 (zen) a 5 (máxima tensão)
-  aiBingeWorthy   Boolean?    // Bom pra maratonar?
-  aiSafeFor       String[]    // relaxing, before_sleep, bad_day, kids
-  aiNotGoodFor    String[]    // anxiety, sensitive_topics
+  embedding       Unsupported("vector(1536)")?
+  aiTags          String[]
+  aiMoodTags      String[]
+  aiComplexity    String?
+  aiPace          String?
+  aiAnxietyLevel  Int?
+  aiBingeWorthy   Boolean?
+  aiSafeFor       String[]
+  aiNotGoodFor    String[]
 
-  // SEO
   seoMetaTitle    String?
   seoMetaDesc     String?     @db.VarChar(160)
-  schemaOrg       Json?       // JSON-LD completo
+  schemaOrg       Json?
 
-  // Status
   status          TitleStatus @default(DRAFT)
-  enrichedAt      DateTime?   // Quando a IA processou
+  enrichedAt      DateTime?
   createdAt       DateTime    @default(now())
   updatedAt       DateTime    @updatedAt
 
-  // Relações
   genres          TitleGenre[]
   cast            TitleCast[]
   awards          Award[]
@@ -184,7 +175,7 @@ model Title {
 model Genre {
   id      Int    @id @default(autoincrement())
   tmdbId  Int?   @unique
-  namePt  String // Drama, Suspense, Comédia...
+  namePt  String
   nameEn  String
   slug    String @unique
 
@@ -209,12 +200,11 @@ model Person {
   name          String
   slug          String   @unique
   photoUrl      String?
-  bioPt         String?  @db.Text  // Bio gerada por IA em PT
+  bioPt         String?  @db.Text
   birthDate     DateTime?
   deathDate     DateTime?
   nationality   String?
 
-  // Redes sociais
   instagramId   String?
   twitterId     String?
   imdbId        String?
@@ -228,8 +218,8 @@ model Person {
 model TitleCast {
   titleId       String
   personId      String
-  role          CastRole    // ACTOR | DIRECTOR | WRITER | DOP | MUSIC | PRODUCER
-  characterName String?     // Para atores
+  role          CastRole
+  characterName String?
   order         Int         @default(0)
 
   title         Title       @relation(fields: [titleId], references: [id], onDelete: Cascade)
@@ -245,11 +235,11 @@ model Rating {
   titleId           String   @unique
   imdbScore         Float?
   imdbVotes         Int?
-  rtTomatometer     Int?     // 0-100
+  rtTomatometer     Int?
   rtAudience        Int?
-  metacritic        Int?     // 0-100
-  rebobinaScore     Float?   // Média ponderada interna
-  aiSentimentPos    Int?     // % positivo
+  metacritic        Int?
+  rebobinaScore     Float?
+  aiSentimentPos    Int?
   aiSentimentNeu    Int?
   aiSentimentNeg    Int?
   lastSyncedAt      DateTime @default(now())
@@ -262,10 +252,10 @@ model Rating {
 model Award {
   id         String      @id @default(cuid())
   titleId    String
-  ceremony   String      // Oscar, Cannes, Emmy, BAFTA...
+  ceremony   String
   year       Int
-  category   String      // Melhor Filme, Melhor Atriz...
-  result     AwardResult // WON | NOMINATED
+  category   String
+  result     AwardResult
 
   title Title @relation(fields: [titleId], references: [id], onDelete: Cascade)
 
@@ -279,11 +269,11 @@ model Award {
 
 model Platform {
   id             Int     @id @default(autoincrement())
-  name           String  // Netflix, Prime Video, Globoplay...
+  name           String
   slug           String  @unique
   logoUrl        String?
-  colorHex       String? // Cor da marca (#E50914)
-  baseUrlBr      String? // URL raiz para deeplinks
+  colorHex       String?
+  baseUrlBr      String?
   tmdbProviderId Int?    @unique
   hasAffiliate   Boolean @default(false)
   affiliateUrl   String?
@@ -300,7 +290,7 @@ model TitleAvailability {
   titleId        String
   platformId     Int
   country        String         @db.Char(2) @default("BR")
-  accessType     AccessType     // SUBSCRIPTION | RENT | BUY | FREE
+  accessType     AccessType
   priceBrl       Decimal?       @db.Decimal(6, 2)
   deeplinkUrl    String?        @db.Text
   availableFrom  DateTime?
@@ -322,9 +312,9 @@ model AffiliateClick {
   id         String   @id @default(cuid())
   titleId    String?
   platformId Int
-  userId     String?  // Nullable (anônimo)
+  userId     String?
   sessionId  String?
-  source     String?  // search | film_page | home | watchlist
+  source     String?
   clickedAt  DateTime @default(now())
 
   platform   Platform @relation(fields: [platformId], references: [id])
@@ -336,7 +326,7 @@ model AffiliateClick {
 
 model SyncJob {
   id               String      @id @default(cuid())
-  jobType          SyncJobType // AVAILABILITY | NEW_TITLES | RATINGS | ENRICHMENT
+  jobType          SyncJobType
   status           JobStatus   @default(PENDING)
   titlesProcessed  Int         @default(0)
   titlesTotal      Int?
@@ -358,8 +348,8 @@ model WatchlistItem {
   id              String          @id @default(cuid())
   userId          String
   titleId         String
-  status          WatchStatus     @default(WANT)  // WANT | WATCHING | WATCHED
-  userRating      Int?            // 1-5 estrelas
+  status          WatchStatus     @default(WANT)
+  userRating      Int?
   userReview      String?         @db.Text
   notifyAvailable Boolean         @default(true)
   addedAt         DateTime        @default(now())
@@ -377,7 +367,7 @@ model WatchlistItem {
 model Notification {
   id          String           @id @default(cuid())
   userId      String
-  type        NotificationType // TITLE_AVAILABLE | LEAVING_SOON | NEW_REC
+  type        NotificationType
   titleId     String?
   platformId  Int?
   messagePt   String
@@ -391,21 +381,21 @@ model Notification {
 }
 
 // ─────────────────────────────────────
-// DOMÍNIO: COMPORTAMENTO (dados B2B)
+// DOMÍNIO: COMPORTAMENTO
 // ─────────────────────────────────────
 
 model SearchEvent {
   id                String   @id @default(cuid())
-  userId            String?  // Nullable — anônimos também valem
+  userId            String?
   sessionId         String?
-  rawQuery          String   @db.Text  // "quero algo triste..."
-  interpretedIntent Json?    // {type, mood, runtime, platform...}
-  resultsShown      String[] // IDs dos títulos mostrados
-  resultClicked     String?  // Qual título clicou
-  clickPosition     Int?     // 1º, 2º resultado?
-  timeToClickMs     Int?     // Tempo de decisão
+  rawQuery          String   @db.Text
+  interpretedIntent Json?
+  resultsShown      String[]
+  resultClicked     String?
+  clickPosition     Int?
+  timeToClickMs     Int?
   refinedQuery      Boolean  @default(false)
-  deviceType        String?  // mobile | desktop | tablet
+  deviceType        String?
   stateBr           String?  @db.Char(2)
   createdAt         DateTime @default(now())
 
@@ -421,7 +411,7 @@ model PageView {
   id           String    @id @default(cuid())
   titleId      String?
   userId       String?
-  pageType     String    // title | actor | list | search | home
+  pageType     String
   referrer     String?
   utmSource    String?
   timeOnPageS  Int?
@@ -438,13 +428,13 @@ model PageView {
 
 model BehaviorSnapshot {
   id                  String   @id @default(cuid())
-  period              DateTime @db.Date  // Semana de referência
-  topSearchedGenres   Json?    // Ranking semanal
-  topSearchedMoods    Json?    // humor, triste, ação...
-  platformClickShare  Json?    // % por streaming
-  topTitlesBr         Json?    // Top 50 buscados no BR
-  regionalBreakdown   Json?    // Por estado
-  demandNotAvailable  Json?    // Buscados sem streaming BR ← produto B2B
+  period              DateTime @db.Date
+  topSearchedGenres   Json?
+  topSearchedMoods    Json?
+  platformClickShare  Json?
+  topTitlesBr         Json?
+  regionalBreakdown   Json?
+  demandNotAvailable  Json?
   createdAt           DateTime @default(now())
 
   @@unique([period])
@@ -457,13 +447,13 @@ model BehaviorSnapshot {
 
 model SeoPage {
   id              String   @id @default(cuid())
-  pageType        String   // title | actor | list | genre | platform
+  pageType        String
   slug            String   @unique
   metaTitle       String?  @db.VarChar(60)
   metaDescription String?  @db.VarChar(160)
   h1              String?
-  contentBlocks   Json?    // Seções geradas por IA
-  schemaOrg       Json?    // JSON-LD
+  contentBlocks   Json?
+  schemaOrg       Json?
   canonicalUrl    String?
   lastIndexedAt   DateTime?
   googleImpressions Int?
@@ -478,9 +468,9 @@ model SeoPage {
 model EditorialList {
   id          String    @id @default(cuid())
   slug        String    @unique
-  titlePt     String    // "Melhores thrillers de 2025"
+  titlePt     String
   description String?   @db.Text
-  listType    String    // manual | ai_generated | trending
+  listType    String
   autoRefresh Boolean   @default(false)
   tags        String[]
   publishedAt DateTime?

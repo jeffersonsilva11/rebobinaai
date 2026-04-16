@@ -1,24 +1,23 @@
 // src/app/api/webhooks/cron/route.ts
 // Endpoint chamado pelo Vercel Cron
-// Configurar em vercel.json
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { tmdb } from '@/lib/apis/tmdb'
 import { ingestTitle } from '@/pipeline/jobs/ingest-title'
+import { syncTitleRatings } from '@/pipeline/jobs/sync-ratings'
 import { headers } from 'next/headers'
 
-// Verifica o secret do cron para segurança
-function isCronAuthorized(req: NextRequest): boolean {
+function isCronAuthorized(): boolean {
   const authHeader = headers().get('authorization')
   return authHeader === `Bearer ${process.env.CRON_SECRET}`
 }
 
-// ─────────────────────────────────────
-// GET /api/webhooks/cron?job=availability
-// ─────────────────────────────────────
+// Rota cron é sempre dinâmica (roda sob demanda do Vercel Cron)
+export const dynamic = 'force-dynamic'
+
 export async function GET(req: NextRequest) {
-  if (!isCronAuthorized(req)) {
+  if (!isCronAuthorized()) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -39,7 +38,7 @@ export async function GET(req: NextRequest) {
 }
 
 // ─────────────────────────────────────
-// JOB 1: Atualiza onde assistir (diário)
+// JOB 1: Atualiza onde assistir
 // ─────────────────────────────────────
 async function runAvailabilitySync() {
   const syncJob = await prisma.syncJob.create({
@@ -47,7 +46,6 @@ async function runAvailabilitySync() {
   })
 
   try {
-    // Pega os 500 títulos mais acessados nos últimos 7 dias
     const popularTitles = await prisma.pageView.groupBy({
       by: ['titleId'],
       where: {
@@ -59,19 +57,16 @@ async function runAvailabilitySync() {
       take: 500,
     })
 
-    // Adiciona também títulos com watchlist que querem ser notificados
     const watchlistTitles = await prisma.watchlistItem.findMany({
       where: { notifyAvailable: true, status: 'WANT' },
       select: { titleId: true },
       distinct: ['titleId'],
     })
 
-    const allTitleIds = [
-      ...new Set([
-        ...popularTitles.map(p => p.titleId!),
-        ...watchlistTitles.map(w => w.titleId),
-      ])
-    ]
+    const allTitleIds = Array.from(new Set([
+      ...popularTitles.map((p) => p.titleId!),
+      ...watchlistTitles.map((w) => w.titleId),
+    ]))
 
     let processed = 0
     const batchSize = 20
@@ -87,10 +82,8 @@ async function runAvailabilitySync() {
           })
           if (!title) return
 
-          // Busca disponibilidade atual no TMDB
           const providers = await tmdb.getWatchProviders(title.tmdbId, title.type, 'BR')
 
-          // Marca todas como inativas
           await prisma.titleAvailability.updateMany({
             where: { titleId, country: 'BR' },
             data: { isActive: false },
@@ -128,7 +121,6 @@ async function runAvailabilitySync() {
               update: { isActive: true, syncedAt: new Date() },
             })
 
-            // Notifica usuários que queriam ver esse título nessa plataforma
             if (!wasAvailable) {
               await notifyUsersOfAvailability(titleId, platform.id, platform.name)
             }
@@ -139,7 +131,6 @@ async function runAvailabilitySync() {
       processed += batch.length
       console.log(`[availability] ${processed}/${allTitleIds.length}`)
 
-      // Pequena pausa para não estourar rate limit da TMDB
       await sleep(500)
     }
 
@@ -160,7 +151,7 @@ async function runAvailabilitySync() {
 }
 
 // ─────────────────────────────────────
-// JOB 2: Busca novos títulos (diário)
+// JOB 2: Busca novos títulos
 // ─────────────────────────────────────
 async function runNewTitlesSync() {
   const syncJob = await prisma.syncJob.create({
@@ -168,7 +159,6 @@ async function runNewTitlesSync() {
   })
 
   try {
-    // Busca trending da semana no TMDB
     const [trendingMovies, trendingSeries, nowPlaying, onAir] = await Promise.all([
       tmdb.getTrending('movie', 'week'),
       tmdb.getTrending('tv', 'week'),
@@ -186,14 +176,13 @@ async function runNewTitlesSync() {
     let processed = 0
 
     for (const item of toIngest) {
-      // Pula se já existe
       const exists = await prisma.title.findFirst({ where: { tmdbId: item.tmdbId } })
       if (exists) continue
 
       try {
         await ingestTitle(item)
         processed++
-        await sleep(1000) // respeita rate limit
+        await sleep(1000)
       } catch (err) {
         console.error(`[new-titles] Erro ao ingerir ${item.tmdbId}:`, err)
       }
@@ -216,21 +205,20 @@ async function runNewTitlesSync() {
 }
 
 // ─────────────────────────────────────
-// JOB 3: Atualiza notas (semanal)
+// JOB 3: Atualiza notas
 // ─────────────────────────────────────
 async function runRatingsSync() {
-  // Atualiza notas dos 200 títulos mais populares
   const titles = await prisma.title.findMany({
     where: { status: 'PUBLISHED', imdbId: { not: null } },
     select: { id: true, imdbId: true },
     take: 200,
-    orderBy: { updatedAt: 'asc' }, // Os mais antigos primeiro
+    orderBy: { updatedAt: 'asc' },
   })
 
   let processed = 0
   for (const title of titles) {
     try {
-      // Lógica de atualização de ratings via OMDb
+      await syncTitleRatings(title.id)
       processed++
     } catch { /* silently skip */ }
     await sleep(200)
@@ -240,18 +228,16 @@ async function runRatingsSync() {
 }
 
 // ─────────────────────────────────────
-// JOB 4: Snapshot de comportamento (semanal)
+// JOB 4: Snapshot de comportamento
 // ─────────────────────────────────────
 async function runBehaviorSnapshot() {
   const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000)
 
-  // Agrega dados da semana
   const searchEvents = await prisma.searchEvent.findMany({
     where: { createdAt: { gte: weekAgo } },
     select: { interpretedIntent: true, resultsShown: true, resultClicked: true, stateBr: true },
   })
 
-  // Computa métricas
   const moodCounts: Record<string, number> = {}
   const stateCounts: Record<string, number> = {}
 
@@ -267,22 +253,6 @@ async function runBehaviorSnapshot() {
     }
   }
 
-  // Títulos buscados sem disponibilidade BR
-  const demandNotAvailable = await prisma.$queryRaw`
-    SELECT t.title_pt, t.title_original, t.type, COUNT(*) as searches
-    FROM search_events se
-    CROSS JOIN LATERAL unnest(se.results_shown) AS tid
-    JOIN titles t ON t.id = tid::uuid
-    WHERE se.created_at >= ${weekAgo}
-    AND NOT EXISTS (
-      SELECT 1 FROM title_availability ta
-      WHERE ta.title_id = t.id AND ta.country = 'BR' AND ta.is_active = true
-    )
-    GROUP BY t.id, t.title_pt, t.title_original, t.type
-    ORDER BY searches DESC
-    LIMIT 50
-  `
-
   const period = new Date()
   period.setHours(0, 0, 0, 0)
 
@@ -292,12 +262,10 @@ async function runBehaviorSnapshot() {
       period,
       topSearchedMoods: moodCounts,
       regionalBreakdown: stateCounts,
-      demandNotAvailable,
     },
     update: {
       topSearchedMoods: moodCounts,
       regionalBreakdown: stateCounts,
-      demandNotAvailable,
     },
   })
 
@@ -326,31 +294,4 @@ async function notifyUsersOfAvailability(titleId: string, platformId: number, pl
   }
 }
 
-const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
-
-
-// ─────────────────────────────────────────────────────
-// vercel.json — Configuração dos cron jobs
-// ─────────────────────────────────────────────────────
-/*
-{
-  "crons": [
-    {
-      "path": "/api/webhooks/cron?job=availability",
-      "schedule": "0 3 * * *"
-    },
-    {
-      "path": "/api/webhooks/cron?job=new-titles",
-      "schedule": "0 4 * * *"
-    },
-    {
-      "path": "/api/webhooks/cron?job=ratings",
-      "schedule": "0 5 * * 1"
-    },
-    {
-      "path": "/api/webhooks/cron?job=snapshot",
-      "schedule": "0 6 * * 1"
-    }
-  ]
-}
-*/
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

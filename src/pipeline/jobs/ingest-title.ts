@@ -3,7 +3,7 @@
 
 import { prisma } from '@/lib/db'
 import { tmdb } from '@/lib/apis/tmdb'
-import { omdb } from '@/lib/apis/omdb'
+import { omdb as omdbClient } from '@/lib/apis/omdb'
 import { youtube } from '@/lib/apis/youtube'
 import { enrichTitle } from './enrich-title'
 
@@ -24,18 +24,18 @@ export async function ingestTitle({ tmdbId, type }: IngestTitleInput) {
   if (!tmdbData) throw new Error(`TMDB: título ${tmdbId} não encontrado`)
 
   // 2. Gera slug
-  const slug = generateSlug(tmdbData.title, tmdbData.year)
+  const slug = generateSlug(tmdbData.titleOriginal, tmdbData.year)
 
   // 3. Busca em paralelo (mais rápido)
-  const [omdbData, credits, externalIds, availability, videos] = await Promise.allSettled([
-    omdb.getByImdbId(tmdbData.imdbId),
+  const [omdbResult, credits, externalIds, availability, videos] = await Promise.allSettled([
+    omdbClient.getByImdbId(tmdbData.imdbId),
     tmdb.getCredits(tmdbId, type),
     tmdb.getExternalIds(tmdbId, type),
     tmdb.getWatchProviders(tmdbId, type, 'BR'),
     tmdb.getVideos(tmdbId, type),
   ])
 
-  const omdb = getValue(omdbData)
+  const omdb = getValue(omdbResult)
   const cast = getValue(credits)
   const socials = getValue(externalIds)
   const providers = getValue(availability)
@@ -69,7 +69,7 @@ export async function ingestTitle({ tmdbId, type }: IngestTitleInput) {
       instagramId: socials?.instagramId,
       twitterId: socials?.twitterId,
       facebookId: socials?.facebookId,
-      status: 'DRAFT', // Fica DRAFT até ser enriquecido pela IA
+      status: 'DRAFT',
     },
     update: {
       titlePt: tmdbData.titlePt ?? tmdbData.titleOriginal,
@@ -122,7 +122,7 @@ export async function ingestTitle({ tmdbId, type }: IngestTitleInput) {
   console.log(`[ingest] Base salva para "${title.titleOriginal}" (${title.id})`)
 
   // 10. Dispara enriquecimento por IA
-  await enrichTitle({ titleId: title.id })
+  await enrichTitle({ titleId: title.id, overview: tmdbData.overview })
 
   return title
 }
@@ -132,7 +132,6 @@ export async function ingestTitle({ tmdbId, type }: IngestTitleInput) {
 // ─────────────────────────────────────
 async function syncGenres(titleId: string, genres: { id: number; name: string }[]) {
   for (const g of genres) {
-    // Upsert do gênero
     const genre = await prisma.genre.upsert({
       where: { tmdbId: g.id },
       create: {
@@ -144,7 +143,6 @@ async function syncGenres(titleId: string, genres: { id: number; name: string }[
       update: {},
     })
 
-    // Cria relação se não existir
     await prisma.titleGenre.upsert({
       where: { titleId_genreId: { titleId, genreId: genre.id } },
       create: { titleId, genreId: genre.id },
@@ -209,7 +207,6 @@ async function syncAvailability(titleId: string, providers: any) {
   const br = providers?.BR
   if (!br) return
 
-  // Marca todas existentes como inativas primeiro
   await prisma.titleAvailability.updateMany({
     where: { titleId, country: 'BR' },
     data: { isActive: false },
@@ -223,14 +220,13 @@ async function syncAvailability(titleId: string, providers: any) {
   ]
 
   for (const entry of entries) {
-    // Busca plataforma pelo tmdbProviderId
     const platform = await prisma.platform.findFirst({
       where: { tmdbProviderId: entry.provider_id },
     })
 
     if (!platform) continue
 
-    const deeplink = buildDeeplink(platform, titleId)
+    const deeplink = buildDeeplink(platform, br.link)
 
     await prisma.titleAvailability.upsert({
       where: {
@@ -251,6 +247,7 @@ async function syncAvailability(titleId: string, providers: any) {
         syncedAt: new Date(),
       },
       update: {
+        deeplinkUrl: deeplink,
         isActive: true,
         syncedAt: new Date(),
       },
@@ -307,9 +304,8 @@ function translateGenre(name: string): string {
   return map[name] ?? name
 }
 
-function buildDeeplink(platform: any, titleId: string): string | null {
+function buildDeeplink(platform: any, tmdbLink?: string): string | null {
+  if (tmdbLink) return tmdbLink
   if (!platform.baseUrlBr) return null
-  // Cada plataforma tem seu padrão — a URL específica do título
-  // vem do TMDB em providers[BR].link quando disponível
   return platform.baseUrlBr
 }

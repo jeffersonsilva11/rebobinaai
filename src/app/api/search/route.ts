@@ -11,8 +11,20 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { headers } from 'next/headers'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+// Lazy-init para não quebrar o build se as chaves não existem ainda
+let _anthropic: Anthropic | null = null
+let _openai: OpenAI | null = null
+function getAnthropic() {
+  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  return _anthropic
+}
+function getOpenAI() {
+  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+  return _openai
+}
+
+// Marca a rota como dinâmica (sem estatização no build)
+export const dynamic = 'force-dynamic'
 
 const SearchSchema = z.object({
   query: z.string().min(2).max(500),
@@ -21,9 +33,8 @@ const SearchSchema = z.object({
   page: z.number().default(1),
 })
 
-// Rate limiting simples
 const RATE_LIMIT = parseInt(process.env.SEARCH_RATE_LIMIT ?? '20')
-const RATE_WINDOW = 60 // segundos
+const RATE_WINDOW = 60
 
 export async function POST(req: NextRequest) {
   // 1. Rate limiting por IP
@@ -53,7 +64,7 @@ export async function POST(req: NextRequest) {
   const cacheKey = `search:${query.toLowerCase().trim()}:${typeFilter}:${(platformFilter ?? []).join(',')}`
   const cached = await redis.get(cacheKey)
   if (cached) {
-    return NextResponse.json(JSON.parse(cached as string))
+    return NextResponse.json(JSON.parse(cached))
   }
 
   try {
@@ -114,7 +125,7 @@ export async function POST(req: NextRequest) {
 // Extrai intenção estruturada da query
 // ─────────────────────────────────────
 async function extractIntent(query: string) {
-  const response = await anthropic.messages.create({
+  const response = await getAnthropic().messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 400,
     messages: [{
@@ -143,6 +154,10 @@ JSON:
   try {
     return JSON.parse(text)
   } catch {
+    const jsonMatch = text.match(/\{[\s\S]*\}/)
+    if (jsonMatch) {
+      try { return JSON.parse(jsonMatch[0]) } catch { /* ignore */ }
+    }
     return { type: 'ALL', summary: query }
   }
 }
@@ -151,7 +166,6 @@ JSON:
 // Gera embedding enriquecido da query
 // ─────────────────────────────────────
 async function generateQueryEmbedding(query: string, intent: any): Promise<number[]> {
-  // Enriquece o texto da query com a intenção extraída para melhor precisão
   const enrichedQuery = [
     query,
     intent.moodTags?.join(' ') ?? '',
@@ -159,7 +173,7 @@ async function generateQueryEmbedding(query: string, intent: any): Promise<numbe
     intent.summary ?? '',
   ].filter(Boolean).join('. ')
 
-  const response = await openai.embeddings.create({
+  const response = await getOpenAI().embeddings.create({
     model: 'text-embedding-3-small',
     input: enrichedQuery,
   })
@@ -184,22 +198,22 @@ async function searchByVector({
 }) {
   const embeddingStr = JSON.stringify(embedding)
 
-  // Filtros dinâmicos
-  const typeClause = typeFilter !== 'ALL' ? `AND t.type = '${typeFilter}'` : ''
-  const anxietyClause = intent.maxAnxietyLevel
+  // Filtros dinâmicos (sempre sanitizando: tipos primitivos e enums)
+  const typeClause = typeFilter !== 'ALL' ? `AND t.type = '${sanitize(typeFilter)}'` : ''
+  const anxietyClause = Number.isInteger(intent.maxAnxietyLevel)
     ? `AND (t.ai_anxiety_level IS NULL OR t.ai_anxiety_level <= ${intent.maxAnxietyLevel})`
     : ''
-  const runtimeClause = intent.maxRuntimeMin
+  const runtimeClause = Number.isInteger(intent.maxRuntimeMin)
     ? `AND (t.runtime_min IS NULL OR t.runtime_min <= ${intent.maxRuntimeMin})`
     : ''
-  const moodClause = intent.moodTags?.length
-    ? `AND t.ai_mood_tags && ARRAY[${intent.moodTags.map((m: string) => `'${m}'`).join(',')}]::text[]`
+  const moodClause = Array.isArray(intent.moodTags) && intent.moodTags.length
+    ? `AND t.ai_mood_tags && ARRAY[${intent.moodTags.map((m: string) => `'${sanitize(m)}'`).join(',')}]::text[]`
     : ''
   const platformClause = platformFilter?.length
     ? `AND EXISTS (
         SELECT 1 FROM title_availability ta2
         WHERE ta2.title_id = t.id
-        AND ta2.platform_id = ANY(ARRAY[${platformFilter.join(',')}]::int[])
+        AND ta2.platform_id = ANY(ARRAY[${platformFilter.filter(Number.isInteger).join(',')}]::int[])
         AND ta2.country = 'BR'
         AND ta2.is_active = true
       )`
@@ -253,26 +267,29 @@ async function searchByVector({
       ${platformClause}
     GROUP BY t.id, r.imdb_score, r.rt_tomatometer
     ORDER BY distance ASC
-    LIMIT ${limit}
+    LIMIT ${Number(limit)}
   `)
 
   return results as any[]
 }
 
+function sanitize(s: string): string {
+  return String(s).replace(/[^a-zA-Z0-9_-]/g, '')
+}
+
 // ─────────────────────────────────────
-// Gera razão da recomendação (IA)
+// Gera razão da recomendação (regras simples)
 // ─────────────────────────────────────
 function generateReason(title: any, intent: any): string {
-  // Regras simples baseadas nos tags — sem custo de IA extra
   const reasons: string[] = []
 
-  if (intent.maxAnxietyLevel && title.ai_anxiety_level <= 2) {
+  if (intent.maxAnxietyLevel && title.ai_anxiety_level && title.ai_anxiety_level <= 2) {
     reasons.push('Muito tranquilo, zero tensão')
   }
   if (intent.moodTags?.includes('feel-good') && title.ai_mood_tags?.includes('feel-good')) {
     reasons.push('Garante bom humor')
   }
-  if (intent.safeFor?.includes('before_sleep') && title.ai_safe_for?.includes('before_sleep')) {
+  if (intent.safeFor?.includes('before_sleep') && title.ai_mood_tags?.includes('cozy')) {
     reasons.push('Ótimo para assistir antes de dormir')
   }
   if (title.ai_mood_tags?.includes('thought-provoking')) {
@@ -303,7 +320,6 @@ async function logSearchEvent(data: {
         rawQuery: data.rawQuery,
         interpretedIntent: data.interpretedIntent,
         resultsShown: data.resultsShown,
-        createdAt: new Date(),
       },
     })
   } catch {
