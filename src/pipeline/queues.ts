@@ -11,3 +11,4 @@ const connection = new IORedis(process.env.REDIS_URL ?? 'redis://localhost:6379'
 export const ingestQueue = new Queue('ingest-title', { connection })
 export const enrichQueue = new Queue('enrich-title', { connection })
 export const syncQueue = new Queue('sync-availability', { connection })
+export const ratingsQueue = new Queue('sync-ratings', { connection })
