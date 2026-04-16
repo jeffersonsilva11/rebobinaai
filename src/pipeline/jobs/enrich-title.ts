@@ -1,22 +1,8 @@
 // src/pipeline/jobs/enrich-title.ts
 // Enriquecimento por IA: gera tags, synopsis PT, curiosidades, embedding, SEO
 
-import Anthropic from '@anthropic-ai/sdk'
-import OpenAI from 'openai'
 import { prisma } from '@/lib/db'
-
-// Lazy-init para não quebrar no build quando as chaves não estão disponíveis
-let _anthropic: Anthropic | null = null
-let _openai: OpenAI | null = null
-
-function getAnthropic() {
-  if (!_anthropic) _anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-  return _anthropic
-}
-function getOpenAI() {
-  if (!_openai) _openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-  return _openai
-}
+import { callClaudeEnricher, generateEmbedding } from '@/lib/ai/enricher'
 
 export interface EnrichTitleInput {
   titleId: string
@@ -51,7 +37,17 @@ export async function enrichTitle({ titleId, overview }: EnrichTitleInput) {
 
   // Executa tudo em paralelo para economizar tempo
   const [enrichment, embedding] = await Promise.all([
-    callClaudeEnricher(context),
+    callClaudeEnricher({
+      title: context.title,
+      type: context.type,
+      year: context.year,
+      runtime: context.runtime,
+      genres: context.genres,
+      synopsis: context.synopsis,
+      imdbScore: context.imdbScore,
+      cast: context.cast,
+      director: context.director,
+    }),
     generateEmbedding(context.embeddingText),
   ])
 
@@ -82,91 +78,6 @@ export async function enrichTitle({ titleId, overview }: EnrichTitleInput) {
 
   console.log(`[enrich] ✓ "${title.titleOriginal}" publicado`)
   return title
-}
-
-// ─────────────────────────────────────
-// Claude Haiku — enriquecimento
-// ─────────────────────────────────────
-async function callClaudeEnricher(context: ReturnType<typeof buildContext>) {
-  const prompt = `Você é um especialista em cinema e séries trabalhando para o Rebobina.ai,
-um site brasileiro de descoberta de entretenimento.
-
-Analise esse título e retorne SOMENTE um JSON válido, sem markdown, sem explicações.
-
-TÍTULO: ${context.title}
-TIPO: ${context.type}
-ANO: ${context.year}
-DURAÇÃO: ${context.runtime}
-GÊNEROS: ${context.genres}
-SINOPSE (EN): ${context.synopsis}
-NOTA IMDB: ${context.imdbScore ?? 'N/A'}
-ELENCO PRINCIPAL: ${context.cast}
-DIRETOR: ${context.director}
-
-Retorne exatamente este JSON:
-{
-  "synopsisPt": "sinopse em português brasileiro, fluida e atrativa, 3-4 frases, sem spoilers",
-  "aiQuote": "uma frase de impacto em PT sobre o filme, como um crítico escreveria, máx 120 chars",
-  "aiTags": ["tag1", "tag2"],
-  "aiMoodTags": ["feel-good"],
-  "complexity": "low"|"medium"|"high",
-  "pace": "slow"|"medium"|"fast",
-  "anxietyLevel": 1,
-  "bingeWorthy": true,
-  "safeFor": ["relaxing"],
-  "notGoodFor": ["anxiety"],
-  "trivia": [
-    {"text": "curiosidade interessante em PT, 1-2 frases"},
-    {"text": "segunda curiosidade"},
-    {"text": "terceira curiosidade"}
-  ],
-  "opinionSummary": "2-3 frases em PT resumindo o que o público e crítica acham",
-  "seoMetaTitle": "máx 60 chars",
-  "seoMetaDesc": "máx 160 chars",
-  "schemaOrg": {
-    "@context": "https://schema.org",
-    "@type": "${context.type === 'MOVIE' ? 'Movie' : 'TVSeries'}",
-    "name": "${context.title}",
-    "datePublished": "${context.year}",
-    "description": "mesma synopsisPt acima"
-  }
-}
-
-Regras:
-- aiTags: 5-10 tags descritivas livres em inglês
-- aiMoodTags: 2-4 tags de: feel-good, tense, dark, uplifting, funny, romantic, inspiring, sad, scary, thought-provoking, cozy, intense, wholesome
-- anxietyLevel: 1=muito tranquilo, 5=máxima tensão
-- safeFor: valores possíveis: relaxing, before_sleep, bad_day, kids, date_night, family
-- notGoodFor: valores possíveis: anxiety, sensitive_topics, kids, before_sleep
-- NUNCA inclua spoilers
-- Escreva em PT-BR natural`
-
-  const response = await getAnthropic().messages.create({
-    model: 'claude-haiku-4-5-20251001',
-    max_tokens: 1500,
-    messages: [{ role: 'user', content: prompt }],
-  })
-
-  const text = response.content[0].type === 'text' ? response.content[0].text : ''
-
-  try {
-    return JSON.parse(text)
-  } catch {
-    const jsonMatch = text.match(/\{[\s\S]*\}/)
-    if (jsonMatch) return JSON.parse(jsonMatch[0])
-    throw new Error(`[enrich] Falha ao fazer parse do JSON da IA: ${text.slice(0, 200)}`)
-  }
-}
-
-// ─────────────────────────────────────
-// OpenAI — embedding para busca semântica
-// ─────────────────────────────────────
-async function generateEmbedding(text: string): Promise<number[]> {
-  const response = await getOpenAI().embeddings.create({
-    model: 'text-embedding-3-small',
-    input: text.slice(0, 8000),
-  })
-  return response.data[0].embedding
 }
 
 // ─────────────────────────────────────

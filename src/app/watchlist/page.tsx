@@ -1,5 +1,6 @@
 // src/app/watchlist/page.tsx — Watchlist do usuário (auth)
 
+import type { Metadata } from 'next'
 import { redirect } from 'next/navigation'
 import { getServerSession } from 'next-auth'
 import Image from 'next/image'
@@ -9,6 +10,12 @@ import { prisma } from '@/lib/db'
 import { StreamingBadge } from '@/components/ui/StreamingBadge'
 
 export const dynamic = 'force-dynamic'
+
+export const metadata: Metadata = {
+  title: 'Sua watchlist — Rebobina.ai',
+  description: 'Sua lista pessoal de filmes e séries para assistir no Rebobina.ai.',
+  robots: { index: false, follow: false },
+}
 
 export default async function WatchlistPage() {
   const session = await getServerSession(authOptions)
