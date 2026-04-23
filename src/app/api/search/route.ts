@@ -28,10 +28,28 @@ const SearchSchema = z.object({
 const RATE_LIMIT = parseInt(process.env.SEARCH_RATE_LIMIT ?? '20')
 const RATE_WINDOW = 60
 
+// Extrai o IP real do cliente. `x-forwarded-for` pode ser "ip1, ip2, ip3" —
+// o primeiro é o client original (atrás do edge da Vercel). Fallback para
+// `x-real-ip`. Se nenhum existir (dev local), usamos "unknown" mas o bucket
+// vira compartilhado, o que é aceitável fora de produção.
+function getClientIp(h: Headers): string {
+  const xff = h.get('x-forwarded-for')
+  if (xff) {
+    const first = xff.split(',')[0]?.trim()
+    if (first) return first
+  }
+  return h.get('x-real-ip') ?? 'unknown'
+}
+
 export async function POST(req: NextRequest) {
-  // 1. Rate limiting por IP
-  const ip = headers().get('x-forwarded-for') ?? 'unknown'
-  const rateLimitKey = `ratelimit:search:${ip}`
+  // 1. Rate limiting por IP + sessão autenticada (quando existir),
+  //    para reduzir bypass via spoofing de X-Forwarded-For.
+  const h = headers()
+  const ip = getClientIp(h)
+  const session = await getServerSession(authOptions)
+  const rateLimitKey = session?.user?.id
+    ? `ratelimit:search:u:${session.user.id}`
+    : `ratelimit:search:ip:${ip}`
   const current = await redis.incr(rateLimitKey)
   if (current === 1) await redis.expire(rateLimitKey, RATE_WINDOW)
   if (current > RATE_LIMIT) {
@@ -49,8 +67,7 @@ export async function POST(req: NextRequest) {
   }
 
   const { query, platformFilter, typeFilter } = parsed.data
-  const session = await getServerSession(authOptions)
-  const sessionId = headers().get('x-session-id') ?? crypto.randomUUID()
+  const sessionId = h.get('x-session-id') ?? crypto.randomUUID()
 
   // 3. Cache — mesma query nas últimas 1h retorna do cache
   const cacheKey = `search:${query.toLowerCase().trim()}:${typeFilter}:${(platformFilter ?? []).join(',')}`

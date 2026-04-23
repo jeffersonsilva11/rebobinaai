@@ -1,6 +1,7 @@
 // src/lib/ai/search.ts
 // Lógica de busca semântica (embedding + pgvector)
 
+import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { EXTRACT_INTENT_PROMPT } from './prompts'
 import { getAnthropic, getOpenAI } from './enricher'
@@ -51,10 +52,9 @@ export async function generateQueryEmbedding(query: string, intent: SearchIntent
   return response.data[0].embedding
 }
 
-// Sanitiza valores para uso em SQL (somente caracteres alfanuméricos + _-)
-function sanitize(s: string): string {
-  return String(s).replace(/[^a-zA-Z0-9_-]/g, '')
-}
+// Tipo aceito na coluna `type` (enum do Postgres). Mantemos um allowlist
+// explícito — qualquer valor fora disso vira `ALL` (sem filtro).
+const ALLOWED_TITLE_TYPES = new Set(['MOVIE', 'SERIES'])
 
 export async function searchByVector(params: {
   embedding: number[]
@@ -64,34 +64,57 @@ export async function searchByVector(params: {
   limit: number
 }) {
   const { embedding, intent, platformFilter, typeFilter, limit } = params
-  const embeddingStr = JSON.stringify(embedding)
 
-  const typeClause = typeFilter !== 'ALL' ? `AND t.type = '${sanitize(typeFilter)}'` : ''
-  const anxietyClause = Number.isInteger(intent.maxAnxietyLevel)
-    ? `AND (t.ai_anxiety_level IS NULL OR t.ai_anxiety_level <= ${intent.maxAnxietyLevel})`
-    : ''
-  const runtimeClause = Number.isInteger(intent.maxRuntimeMin)
-    ? `AND (t.runtime_min IS NULL OR t.runtime_min <= ${intent.maxRuntimeMin})`
-    : ''
-  const moodClause = Array.isArray(intent.moodTags) && intent.moodTags.length
-    ? `AND t.ai_mood_tags && ARRAY[${intent.moodTags.map((m: string) => `'${sanitize(m)}'`).join(',')}]::text[]`
-    : ''
-  const platformClause = platformFilter?.length
-    ? `AND EXISTS (
-        SELECT 1 FROM title_availability ta2
-        WHERE ta2.title_id = t.id
-        AND ta2.platform_id = ANY(ARRAY[${platformFilter.filter(Number.isInteger).join(',')}]::int[])
-        AND ta2.country = 'BR'
-        AND ta2.is_active = true
-      )`
-    : ''
+  // pgvector aceita representação string no formato "[0.1,0.2,...]".
+  // Passamos como parâmetro e fazemos cast explícito para `vector`.
+  const embeddingStr = `[${embedding.join(',')}]`
 
-  const results = await prisma.$queryRawUnsafe<any[]>(`
+  // Cláusulas opcionais construídas com Prisma.sql — todos os valores
+  // dinâmicos passam como parâmetros do driver, nunca interpolados.
+  const typeClause =
+    ALLOWED_TITLE_TYPES.has(typeFilter)
+      ? Prisma.sql`AND t.type = ${typeFilter}::"TitleType"`
+      : Prisma.empty
+
+  const anxietyClause =
+    Number.isInteger(intent.maxAnxietyLevel)
+      ? Prisma.sql`AND (t.ai_anxiety_level IS NULL OR t.ai_anxiety_level <= ${intent.maxAnxietyLevel})`
+      : Prisma.empty
+
+  const runtimeClause =
+    Number.isInteger(intent.maxRuntimeMin)
+      ? Prisma.sql`AND (t.runtime_min IS NULL OR t.runtime_min <= ${intent.maxRuntimeMin})`
+      : Prisma.empty
+
+  const moodTags =
+    Array.isArray(intent.moodTags)
+      ? intent.moodTags.filter((m): m is string => typeof m === 'string').slice(0, 20)
+      : []
+  const moodClause =
+    moodTags.length
+      ? Prisma.sql`AND t.ai_mood_tags && ${moodTags}::text[]`
+      : Prisma.empty
+
+  const platformIds = (platformFilter ?? []).filter(Number.isInteger)
+  const platformClause =
+    platformIds.length
+      ? Prisma.sql`AND EXISTS (
+          SELECT 1 FROM title_availability ta2
+          WHERE ta2.title_id = t.id
+            AND ta2.platform_id = ANY(${platformIds}::int[])
+            AND ta2.country = 'BR'
+            AND ta2.is_active = true
+        )`
+      : Prisma.empty
+
+  const safeLimit = Math.min(Math.max(Number.isInteger(limit) ? limit : 8, 1), 50)
+
+  const results = await prisma.$queryRaw<any[]>(Prisma.sql`
     SELECT
       t.id, t.slug, t.title_pt, t.title_original, t.year, t.type,
       t.runtime_min, t.poster_url, t.ai_mood_tags, t.ai_tags,
       t.ai_anxiety_level, t.ai_pace, t.synopsis_pt, t.ai_opinion_summary,
-      t.embedding <=> '${embeddingStr}'::vector AS distance,
+      t.embedding <=> ${embeddingStr}::vector AS distance,
       r.imdb_score, r.rt_tomatometer,
       COALESCE(
         json_agg(
@@ -115,7 +138,7 @@ export async function searchByVector(params: {
       ${typeClause} ${anxietyClause} ${runtimeClause} ${moodClause} ${platformClause}
     GROUP BY t.id, r.imdb_score, r.rt_tomatometer
     ORDER BY distance ASC
-    LIMIT ${Number(limit)}
+    LIMIT ${safeLimit}
   `)
 
   return results
