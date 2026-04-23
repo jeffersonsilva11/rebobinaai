@@ -25,7 +25,7 @@
 3. Vá em APIs & Services → OAuth consent screen → External
 4. Vá em Credentials → Create → OAuth 2.0 Client ID
 5. Application type: **Web application**
-6. Authorized redirect URIs: `http://localhost:3000/api/auth/callback/google`
+6. Authorized redirect URIs: `http://localhost:3002/api/auth/callback/google`
 7. Copie **Client ID** e **Client Secret**
 
 ### OMDb (opcional — notas adicionais)
@@ -80,6 +80,15 @@ docker-compose ps
 # Deve mostrar: rebobina_postgres (healthy) e rebobina_redis (healthy)
 ```
 
+**Portas expostas no host** (escolhidas para não conflitar com outros projetos):
+
+| Serviço         | Porta host |
+|-----------------|------------|
+| Postgres        | **5433**   |
+| Redis           | **6380**   |
+| Redis Commander | **8082** (opcional: `docker-compose --profile tools up -d`) |
+| App Next.js     | **3002**   |
+
 ---
 
 ## 4. Configure o banco de dados
@@ -108,13 +117,16 @@ npx prisma studio
 npx tsx scripts/test-pipeline.ts
 
 # Popula com top 50 títulos populares (~15 min)
-npx tsx scripts/seed-top-titles.ts --limit 50
+npm run seed:titles -- --limit 50
 
 # Popula o catálogo completo em background (~2h)
-npx tsx scripts/seed-top-titles.ts --limit 500 &
+npm run seed:titles -- --limit 500 &
 
 # Acompanhe o progresso
-npx tsx scripts/seed-top-titles.ts --status
+npm run seed:titles -- --status
+
+# Popula trending semanal (TMDB)
+npm run seed:trending
 ```
 
 ---
@@ -126,9 +138,9 @@ npx tsx scripts/seed-top-titles.ts --status
 npm run dev
 
 # Acesse:
-# http://localhost:3000          — Home
-# http://localhost:3000/busca    — Busca com IA
-# http://localhost:3000/filme/[slug] — Página do filme
+# http://localhost:3002          — Home
+# http://localhost:3002/busca    — Busca com IA
+# http://localhost:3002/filme/[slug] — Página do filme
 ```
 
 ---
@@ -138,11 +150,11 @@ npm run dev
 ```bash
 # Simula o cron de disponibilidade
 curl -H "Authorization: Bearer seu-cron-secret" \
-  "http://localhost:3000/api/webhooks/cron?job=availability"
+  "http://localhost:3002/api/webhooks/cron?job=availability"
 
 # Simula busca de novos títulos
 curl -H "Authorization: Bearer seu-cron-secret" \
-  "http://localhost:3000/api/webhooks/cron?job=new-titles"
+  "http://localhost:3002/api/webhooks/cron?job=new-titles"
 ```
 
 ---
@@ -167,9 +179,16 @@ rebobina/
 │
 ├── scripts/
 │   ├── seed-platforms.ts         ← popula plataformas
-│   ├── seed-top-titles.ts        ← popula títulos iniciais
 │   ├── test-pipeline.ts          ← testa com 5 títulos
+│   ├── setup-local.sh            ← setup completo local
 │   └── init-db.sql               ← extensões PostgreSQL
+│
+├── docs/
+│   ├── ARCHITECTURE.md           ← visão geral
+│   ├── DATABASE.md               ← schema e modelos
+│   ├── PIPELINE.md               ← pipeline de ingestão
+│   ├── API.md                    ← rotas públicas
+│   └── SETUP.md                  ← este arquivo
 │
 └── src/
     ├── app/
@@ -250,5 +269,5 @@ ls -la | grep env
 **Banco vazio após seed**
 ```bash
 # Veja os logs do pipeline
-npx tsx scripts/seed-top-titles.ts --verbose
+npm run seed:titles -- --verbose
 ```

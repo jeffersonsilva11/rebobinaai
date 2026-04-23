@@ -1,0 +1,20 @@
+{
+  "crons": [
+    {
+      "path": "/api/webhooks/cron?job=availability",
+      "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/webhooks/cron?job=new-titles",
+      "schedule": "0 4 * * *"
+    },
+    {
+      "path": "/api/webhooks/cron?job=ratings",
+      "schedule": "0 5 * * 1"
+    },
+    {
+      "path": "/api/webhooks/cron?job=snapshot",
+      "schedule": "0 6 * * 1"
+    }
+  ]
+}

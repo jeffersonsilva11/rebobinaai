@@ -1,11 +1,14 @@
 // src/pipeline/jobs/ingest-title.ts
 // Job principal: busca todos os dados de 1 título e salva no banco
 
+import type { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/db'
 import { tmdb } from '@/lib/apis/tmdb'
-import { omdb } from '@/lib/apis/omdb'
+import { omdb as omdbClient } from '@/lib/apis/omdb'
 import { youtube } from '@/lib/apis/youtube'
 import { enrichTitle } from './enrich-title'
+
+type Tx = Prisma.TransactionClient
 
 export interface IngestTitleInput {
   tmdbId: number
@@ -24,18 +27,18 @@ export async function ingestTitle({ tmdbId, type }: IngestTitleInput) {
   if (!tmdbData) throw new Error(`TMDB: título ${tmdbId} não encontrado`)
 
   // 2. Gera slug
-  const slug = generateSlug(tmdbData.title, tmdbData.year)
+  const slug = generateSlug(tmdbData.titleOriginal, tmdbData.year)
 
   // 3. Busca em paralelo (mais rápido)
-  const [omdbData, credits, externalIds, availability, videos] = await Promise.allSettled([
-    omdb.getByImdbId(tmdbData.imdbId),
+  const [omdbResult, credits, externalIds, availability, videos] = await Promise.allSettled([
+    omdbClient.getByImdbId(tmdbData.imdbId),
     tmdb.getCredits(tmdbId, type),
     tmdb.getExternalIds(tmdbId, type),
     tmdb.getWatchProviders(tmdbId, type, 'BR'),
     tmdb.getVideos(tmdbId, type),
   ])
 
-  const omdb = getValue(omdbData)
+  const omdb = getValue(omdbResult)
   const cast = getValue(credits)
   const socials = getValue(externalIds)
   const providers = getValue(availability)
@@ -45,84 +48,79 @@ export async function ingestTitle({ tmdbId, type }: IngestTitleInput) {
   const trailerYoutubeId = videoList?.trailerKey
     ?? await youtube.findTrailer(`${tmdbData.titleOriginal} trailer oficial`)
 
-  // 5. Upsert do título principal
-  const title = await prisma.title.upsert({
-    where: { tmdbId },
-    create: {
-      tmdbId,
-      imdbId: tmdbData.imdbId,
-      type,
-      slug,
-      titlePt: tmdbData.titlePt ?? tmdbData.titleOriginal,
-      titleOriginal: tmdbData.titleOriginal,
-      year: tmdbData.year,
-      endYear: tmdbData.endYear,
-      runtimeMin: tmdbData.runtimeMin,
-      totalEpisodes: tmdbData.totalEpisodes,
-      totalSeasons: tmdbData.totalSeasons,
-      posterUrl: tmdbData.posterUrl ? `https://image.tmdb.org/t/p/w500${tmdbData.posterUrl}` : null,
-      backdropUrl: tmdbData.backdropUrl ? `https://image.tmdb.org/t/p/original${tmdbData.backdropUrl}` : null,
-      trailerYoutubeId,
-      ratingAge: tmdbData.ratingAge,
-      countries: tmdbData.countries,
-      languages: tmdbData.languages,
-      instagramId: socials?.instagramId,
-      twitterId: socials?.twitterId,
-      facebookId: socials?.facebookId,
-      status: 'DRAFT', // Fica DRAFT até ser enriquecido pela IA
-    },
-    update: {
-      titlePt: tmdbData.titlePt ?? tmdbData.titleOriginal,
-      titleOriginal: tmdbData.titleOriginal,
-      posterUrl: tmdbData.posterUrl ? `https://image.tmdb.org/t/p/w500${tmdbData.posterUrl}` : undefined,
-      backdropUrl: tmdbData.backdropUrl ? `https://image.tmdb.org/t/p/original${tmdbData.backdropUrl}` : undefined,
-      trailerYoutubeId: trailerYoutubeId ?? undefined,
-      instagramId: socials?.instagramId,
-      twitterId: socials?.twitterId,
-      updatedAt: new Date(),
-    },
-  })
-
-  // 6. Salva notas
-  if (omdb || tmdbData.voteAverage) {
-    await prisma.rating.upsert({
-      where: { titleId: title.id },
+  // 5-9. Escrita atômica no banco (tudo ou nada)
+  const title = await prisma.$transaction(async (tx) => {
+    // Upsert do título principal
+    const t = await tx.title.upsert({
+      where: { tmdbId },
       create: {
-        titleId: title.id,
-        imdbScore: omdb?.imdbRating ?? null,
-        imdbVotes: omdb?.imdbVotes ?? null,
-        rtTomatometer: omdb?.rtScore ?? null,
-        metacritic: omdb?.metacriticScore ?? null,
+        tmdbId,
+        imdbId: tmdbData.imdbId,
+        type,
+        slug,
+        titlePt: tmdbData.titlePt ?? tmdbData.titleOriginal,
+        titleOriginal: tmdbData.titleOriginal,
+        year: tmdbData.year,
+        endYear: tmdbData.endYear,
+        runtimeMin: tmdbData.runtimeMin,
+        totalEpisodes: tmdbData.totalEpisodes,
+        totalSeasons: tmdbData.totalSeasons,
+        posterUrl: tmdbData.posterUrl ? `https://image.tmdb.org/t/p/w500${tmdbData.posterUrl}` : null,
+        backdropUrl: tmdbData.backdropUrl ? `https://image.tmdb.org/t/p/original${tmdbData.backdropUrl}` : null,
+        trailerYoutubeId,
+        ratingAge: tmdbData.ratingAge,
+        countries: tmdbData.countries,
+        languages: tmdbData.languages,
+        instagramId: socials?.instagramId,
+        twitterId: socials?.twitterId,
+        facebookId: socials?.facebookId,
+        status: 'DRAFT',
       },
       update: {
-        imdbScore: omdb?.imdbRating ?? undefined,
-        imdbVotes: omdb?.imdbVotes ?? undefined,
-        rtTomatometer: omdb?.rtScore ?? undefined,
-        metacritic: omdb?.metacriticScore ?? undefined,
-        lastSyncedAt: new Date(),
+        titlePt: tmdbData.titlePt ?? tmdbData.titleOriginal,
+        titleOriginal: tmdbData.titleOriginal,
+        posterUrl: tmdbData.posterUrl ? `https://image.tmdb.org/t/p/w500${tmdbData.posterUrl}` : undefined,
+        backdropUrl: tmdbData.backdropUrl ? `https://image.tmdb.org/t/p/original${tmdbData.backdropUrl}` : undefined,
+        trailerYoutubeId: trailerYoutubeId ?? undefined,
+        instagramId: socials?.instagramId,
+        twitterId: socials?.twitterId,
+        updatedAt: new Date(),
       },
     })
-  }
 
-  // 7. Salva gêneros
-  if (tmdbData.genres?.length) {
-    await syncGenres(title.id, tmdbData.genres)
-  }
+    // Notas
+    if (omdb || tmdbData.voteAverage) {
+      await tx.rating.upsert({
+        where: { titleId: t.id },
+        create: {
+          titleId: t.id,
+          imdbScore: omdb?.imdbRating ?? null,
+          imdbVotes: omdb?.imdbVotes ?? null,
+          rtTomatometer: omdb?.rtScore ?? null,
+          metacritic: omdb?.metacriticScore ?? null,
+        },
+        update: {
+          imdbScore: omdb?.imdbRating ?? undefined,
+          imdbVotes: omdb?.imdbVotes ?? undefined,
+          rtTomatometer: omdb?.rtScore ?? undefined,
+          metacritic: omdb?.metacriticScore ?? undefined,
+          lastSyncedAt: new Date(),
+        },
+      })
+    }
 
-  // 8. Salva elenco + equipe
-  if (cast) {
-    await syncCast(title.id, cast)
-  }
+    // Gêneros / cast / availability — dependem do Title existir, por isso dentro da mesma tx
+    if (tmdbData.genres?.length) await syncGenres(tx, t.id, tmdbData.genres)
+    if (cast) await syncCast(tx, t.id, cast)
+    if (providers) await syncAvailability(tx, t.id, providers)
 
-  // 9. Salva disponibilidade (onde assistir)
-  if (providers) {
-    await syncAvailability(title.id, providers)
-  }
+    return t
+  }, { timeout: 30_000 })
 
   console.log(`[ingest] Base salva para "${title.titleOriginal}" (${title.id})`)
 
-  // 10. Dispara enriquecimento por IA
-  await enrichTitle({ titleId: title.id })
+  // 10. Enriquecimento por IA — fora da transação (chama APIs externas, pode demorar)
+  await enrichTitle({ titleId: title.id, overview: tmdbData.overview })
 
   return title
 }
@@ -130,10 +128,9 @@ export async function ingestTitle({ tmdbId, type }: IngestTitleInput) {
 // ─────────────────────────────────────
 // Sincroniza gêneros
 // ─────────────────────────────────────
-async function syncGenres(titleId: string, genres: { id: number; name: string }[]) {
+async function syncGenres(tx: Tx, titleId: string, genres: { id: number; name: string }[]) {
   for (const g of genres) {
-    // Upsert do gênero
-    const genre = await prisma.genre.upsert({
+    const genre = await tx.genre.upsert({
       where: { tmdbId: g.id },
       create: {
         tmdbId: g.id,
@@ -144,8 +141,7 @@ async function syncGenres(titleId: string, genres: { id: number; name: string }[
       update: {},
     })
 
-    // Cria relação se não existir
-    await prisma.titleGenre.upsert({
+    await tx.titleGenre.upsert({
       where: { titleId_genreId: { titleId, genreId: genre.id } },
       create: { titleId, genreId: genre.id },
       update: {},
@@ -156,7 +152,7 @@ async function syncGenres(titleId: string, genres: { id: number; name: string }[
 // ─────────────────────────────────────
 // Sincroniza elenco
 // ─────────────────────────────────────
-async function syncCast(titleId: string, credits: any) {
+async function syncCast(tx: Tx, titleId: string, credits: any) {
   const allPeople = [
     ...(credits.cast?.slice(0, 15) ?? []).map((p: any) => ({ ...p, role: 'ACTOR' })),
     ...(credits.crew?.filter((p: any) =>
@@ -165,7 +161,7 @@ async function syncCast(titleId: string, credits: any) {
   ]
 
   for (const person of allPeople) {
-    const p = await prisma.person.upsert({
+    const p = await tx.person.upsert({
       where: { tmdbPersonId: person.id },
       create: {
         tmdbPersonId: person.id,
@@ -182,7 +178,7 @@ async function syncCast(titleId: string, credits: any) {
       },
     })
 
-    await prisma.titleCast.upsert({
+    await tx.titleCast.upsert({
       where: {
         titleId_personId_role: {
           titleId,
@@ -205,12 +201,11 @@ async function syncCast(titleId: string, credits: any) {
 // ─────────────────────────────────────
 // Sincroniza disponibilidade (onde assistir)
 // ─────────────────────────────────────
-async function syncAvailability(titleId: string, providers: any) {
+async function syncAvailability(tx: Tx, titleId: string, providers: any) {
   const br = providers?.BR
   if (!br) return
 
-  // Marca todas existentes como inativas primeiro
-  await prisma.titleAvailability.updateMany({
+  await tx.titleAvailability.updateMany({
     where: { titleId, country: 'BR' },
     data: { isActive: false },
   })
@@ -223,16 +218,15 @@ async function syncAvailability(titleId: string, providers: any) {
   ]
 
   for (const entry of entries) {
-    // Busca plataforma pelo tmdbProviderId
-    const platform = await prisma.platform.findFirst({
+    const platform = await tx.platform.findFirst({
       where: { tmdbProviderId: entry.provider_id },
     })
 
     if (!platform) continue
 
-    const deeplink = buildDeeplink(platform, titleId)
+    const deeplink = buildDeeplink(platform, br.link)
 
-    await prisma.titleAvailability.upsert({
+    await tx.titleAvailability.upsert({
       where: {
         titleId_platformId_country_accessType: {
           titleId,
@@ -251,6 +245,7 @@ async function syncAvailability(titleId: string, providers: any) {
         syncedAt: new Date(),
       },
       update: {
+        deeplinkUrl: deeplink,
         isActive: true,
         syncedAt: new Date(),
       },
@@ -307,9 +302,8 @@ function translateGenre(name: string): string {
   return map[name] ?? name
 }
 
-function buildDeeplink(platform: any, titleId: string): string | null {
+function buildDeeplink(platform: any, tmdbLink?: string): string | null {
+  if (tmdbLink) return tmdbLink
   if (!platform.baseUrlBr) return null
-  // Cada plataforma tem seu padrão — a URL específica do título
-  // vem do TMDB em providers[BR].link quando disponível
   return platform.baseUrlBr
 }
