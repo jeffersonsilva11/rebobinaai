@@ -166,12 +166,14 @@ rebobina/
 │   ├── test-search.ts
 │   └── init-db.sql              ← extensions pgvector/pg_trgm/unaccent
 │
-└── docs/                        ← stubs, precisam ser preenchidos
-    ├── ARCHITECTURE.md
-    ├── DATABASE.md
-    ├── PIPELINE.md
-    ├── API.md
-    └── SETUP.md
+└── docs/
+    ├── ARCHITECTURE.md          ← stub
+    ├── DATABASE.md              ← stub
+    ├── PIPELINE.md              ← stub
+    ├── API.md                   ← stub
+    ├── SETUP.md                 ← stub
+    ├── BENCHMARK.md             ← pesquisa competitiva 2026 (streamings + agregadores + UX + monetização)
+    └── BACKLOG.md               ← backlog ICE-priorizado por tema
 ```
 
 ---
@@ -219,13 +221,14 @@ Prisma Studio para inspeção: `npm run prisma:studio`.
 ## Ordem de evolução do projeto
 
 ```
-Fase 1 — Fundação  ✅ concluída
-Fase 2 — Frontend  ✅ páginas básicas prontas (faltam polimento visual + microinterações)
-Fase 3 — Crons     ✅ cron endpoint + jobs prontos; falta autenticar monitoring
-Fase 4 — SEO       🚧 generateMetadata parcial; falta sitemap dinâmico e schema.org completo
-Fase 5 — Qualidade 🚧 sem testes; falta CI; falta monitoramento
-Fase 6 — LGPD      🚧 consentimento parcial; faltam endpoints de export/delete
-Fase 7 — Rerank    📋 planejado — híbrido vector + popularidade + personalização leve
+Fase 1 — Fundação    ✅ concluída
+Fase 2 — Frontend    ✅ páginas básicas prontas (faltam polimento visual + microinterações)
+Fase 3 — Crons       ✅ cron endpoint + jobs prontos; falta autenticar monitoring
+Fase 4 — SEO         🚧 generateMetadata parcial; falta sitemap dinâmico e schema.org completo
+Fase 5 — Qualidade   🚧 sem testes; falta CI; falta monitoramento
+Fase 6 — LGPD        🚧 consentimento parcial; faltam endpoints de export/delete
+Fase 7 — Rerank      📋 planejado — híbrido vector + popularidade + personalização leve
+Fase 8 — Benchmark   ✅ docs/BENCHMARK.md + docs/BACKLOG.md criados; próximo sprint definido
 ```
 
 ---
