@@ -11,6 +11,7 @@
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:studio": "prisma studio",
+    "seed:mock": "tsx scripts/seed-mock.ts",
     "seed:platforms": "tsx scripts/seed-platforms.ts",
     "seed:titles": "tsx src/pipeline/scripts/seed-top-titles.ts",
     "seed:trending": "tsx src/pipeline/scripts/seed-trending.ts",
